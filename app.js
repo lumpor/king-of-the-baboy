@@ -1,6 +1,5 @@
 'use strict';
 const VERSION = '1.0.0';
-const DEFAULT_EMAIL = 'fabian.friberg@gmail.com'; // where backups go unless changed in the app
 
 /* ---------- small helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -33,15 +32,17 @@ const fmtDate = s => {
 const fmtMonth = m => parseDate(m + '-01').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
 
 /* ---------- database ---------- */
-const STORES = ['entries', 'meta'];
+const STORES = ['entries', 'meta', 'outbox'];
 let db;
 let entries = new Map();
-let meta = { id: 'meta', email: DEFAULT_EMAIL, lastBackup: null, hideInstall: false, startCount: 0 };
+let meta = { id: 'meta', syncKey: '', syncUser: '', lastSync: null, hideInstall: false, startCount: 0 };
 
 function openDB() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('kingofthebaboy', 1);
-    r.onupgradeneeded = () => { for (const s of STORES) r.result.createObjectStore(s, { keyPath: 'id' }); };
+    const r = indexedDB.open('kingofthebaboy', 2);
+    r.onupgradeneeded = () => {
+      for (const s of STORES) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s, { keyPath: 'id' });
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
@@ -52,10 +53,10 @@ const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); 
 async function loadAll() {
   entries = new Map((await req(store('entries').getAll())).map(o => [o.id, o]));
   const m = await req(store('meta').get('meta'));
-  if (m) meta = { ...meta, ...m, email: m.email || DEFAULT_EMAIL };
+  if (m) meta = { ...meta, ...m };
 }
-async function putEntry(e) { entries.set(e.id, e); await req(store('entries', 'readwrite').put(e)); }
-async function delEntry(id) { entries.delete(id); await req(store('entries', 'readwrite').delete(id)); }
+async function putEntry(e) { entries.set(e.id, e); await req(store('entries', 'readwrite').put(e)); await enqueue('entries', 'put', e.id, e); }
+async function delEntry(id) { entries.delete(id); await req(store('entries', 'readwrite').delete(id)); await enqueue('entries', 'delete', id); }
 const saveMeta = () => req(store('meta', 'readwrite').put(meta));
 
 /* ---------- domain ---------- */
@@ -72,7 +73,6 @@ const ICON = Object.fromEntries(Object.entries({
   gas: '<path d="M5 4h9v16H5z M5 10h9 M14 8h2l3 3v7a1.5 1.5 0 0 1-3 0v-3h-2"/>',
   other: '<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5z M9 8h6 M9 12h6 M9 16h3"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`]));
-const COPY_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9z M5 15H4V4h11v1"/></svg>';
 // +3 / −2 / ±0 for a change in the number of baboy.
 const fmtChange = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
 const sorted = () => [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
@@ -229,11 +229,7 @@ function pageStats(month) {
     return `<tr><td>${label}</td><td>${nb}${nb ? `<br><small>${peso(sum(b, e => e.total) / nb)} each</small>` : ''}</td>
       <td>${ns}${ns ? `<br><small>${peso(sum(s, e => e.total) / ns)} each</small>` : ''}</td></tr>`;
   }).join('');
-  return `<div class="btns" style="margin-top:0">
-      <button class="btn" data-act="copySummary" data-month="${month}">${COPY_ICON}Copy ${fmtMonth(month)}</button>
-      <button class="btn ghost" data-act="copySummary" data-month="all">${COPY_ICON}Copy all time</button></div>
-    <p class="muted" style="margin:6px 4px 0"><small>Paste it in a chat. Pick another month under “By month”.</small></p>
-    <h2>This month</h2>
+  return `<h2>This month</h2>
     <div class="tiles">${tile('Sold', peso(m.sold))}${tile('Spent', peso(m.spent))}${tile('Profit', peso(m.profit), m.profit < 0 ? 'bad' : 'ok')}</div>
     <div class="card"><small>Baboy this month</small>
       <div class="big">${fmtChange(m.nBought - m.nSold)} <small>(${m.nBought} bought, ${m.nSold} sold)</small></div></div>
@@ -251,7 +247,7 @@ function pageStats(month) {
     <h2>By month</h2>
     <div class="card"><table><tr><th>Month</th><th>Baboy</th><th>Sold</th><th>Spent</th><th>Profit</th></tr>
       ${months.map(k => { const o = totals(all.filter(e => monthOf(e.date) === k));
-        return `<tr class="${k === month ? 'sel' : ''}"><td><a href="#stats/${k}">${fmtMonth(k)}</a></td><td>${fmtChange(o.nBought - o.nSold)}</td>
+        return `<tr><td>${fmtMonth(k)}</td><td>${fmtChange(o.nBought - o.nSold)}</td>
           <td>${peso(o.sold)}</td><td>${peso(o.spent)}</td>
           <td class="${o.profit < 0 ? 'bad' : ''}">${peso(o.profit)}</td></tr>`; }).join('')}
     </table></div>
@@ -259,67 +255,132 @@ function pageStats(month) {
     <div class="card"><table><tr><th>Size</th><th>Bought</th><th>Sold</th></tr>${sizeRows}</table></div>`;
 }
 
-/* ---------- monthly summary (copied as text, to paste in a chat) ---------- */
-// m is 'YYYY-MM', or 'all' for everything so far.
-function monthSummary(m) {
-  const t0 = today();
-  const list = sorted().filter(e => m === 'all' || monthOf(e.date) === m);
-  const t = totals(list);
-  const bySize = kind => Object.entries(SIZES)
-    .map(([k, label]) => [label, sum(list.filter(e => e.kind === kind && e.size === k), e => e.count)])
-    .filter(([, n]) => n).map(([label, n]) => `${n} ${label}`).join(', ');
-  const others = list.filter(e => e.kind === 'other');
-  return [
-    `King of Baboy — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
-    '',
-    `Sold: ${t.nSold} baboy, ${peso(t.sold)}${t.nSold ? ` (${bySize('sell')})` : ''}`,
-    `Bought: ${t.nBought} baboy, ${peso(t.bought)}${t.nBought ? ` (${bySize('buy')})` : ''}`,
-    `Feed: ${round2(t.kg)} kg, ${peso(t.feed)}`,
-    `Gasolina: ${peso(t.gas)}`,
-    `Other: ${peso(t.other)}${others.length ? ` (${others.map(e => `${e.what} ${peso(e.total)}`).join(', ')})` : ''}`,
-    `Spent in total: ${peso(t.spent)}`,
-    `Profit: ${peso(t.profit)}`,
-    '',
-    `Change in baboy: ${fmtChange(t.nBought - t.nSold)}`,
-    `Baboy now: ${onHand()}`,
-  ].join('\n');
+/* ---------- sync with the Google Sheet ---------- */
+// Every change is saved on the phone first and put in the 'outbox' queue. The queue is sent to
+// the sheet in the background whenever there is internet, so a bad connection never slows the app.
+const SYNC_URL = ''; // the Apps Script web app URL (…/exec)
+const SYNC_APP = 'king-of-baboy';
+const SYNCED = ['entries', 'settings'];
+const Sync = { busy: false, timer: null, error: null, pending: 0 };
+
+async function enqueue(storeName, op, id, data = null) {
+  if (!SYNCED.includes(storeName)) return;
+  await req(store('outbox', 'readwrite').put({ id: `${storeName}|${id}`, store: storeName, op, recId: id, data, ts: Date.now() }));
+  scheduleSync();
 }
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Summary copied — paste it in the chat');
-  } catch {
-    // No clipboard access: show the text so it can be copied by hand.
-    openSheet(`<h3>Monthly summary</h3><textarea rows="14" readonly>${esc(text)}</textarea>
-      <p><small>Select all of the text and copy it.</small></p>`);
-    setTimeout(() => { const t = $('#sheet textarea'); t.focus(); t.select(); }, 60);
-  }
+const scheduleSync = (ms = 1500) => { clearTimeout(Sync.timer); Sync.timer = setTimeout(() => guard(syncNow)(), ms); };
+
+async function syncPost(body) {
+  // A plain-text body keeps this a "simple" request, which Apps Script accepts from other sites.
+  const r = await fetch(SYNC_URL, { method: 'POST', body: JSON.stringify({ app: SYNC_APP, key: meta.syncKey, ...body }) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'Sync failed');
+  if (j.user && j.user !== meta.syncUser) { meta.syncUser = j.user; await saveMeta(); }
+  return j;
 }
 
-/* ---------- page: backup / settings ---------- */
+async function syncNow() {
+  Sync.pending = await req(store('outbox').count());
+  if (!SYNC_URL || !meta.syncKey || Sync.busy || !Sync.pending || !navigator.onLine) return updateSyncInfo();
+  Sync.busy = true;
+  try {
+    const items = (await req(store('outbox').getAll())).slice(0, 300);
+    await syncPost({ action: 'push', ops: items.map(i => ({ store: i.store, op: i.op, id: i.recId, data: i.data })) });
+    for (const i of items) {
+      // keep an item that was changed again while it was being sent
+      const cur = await req(store('outbox').get(i.id));
+      if (cur && cur.ts === i.ts) await req(store('outbox', 'readwrite').delete(i.id));
+    }
+    meta.lastSync = new Date().toISOString();
+    await saveMeta();
+    Sync.error = null;
+  } catch (err) {
+    Sync.error = err.message;
+    scheduleSync(30000);
+  } finally {
+    Sync.busy = false;
+  }
+  Sync.pending = await req(store('outbox').count());
+  if (Sync.pending && !Sync.error) scheduleSync(200);
+  updateSyncInfo();
+}
+
+// A setup link (…/#setup/<secret code>) switches sync on for this phone.
+async function handleSetupLink() {
+  const m = location.hash.match(/^#setup\/(.+)$/);
+  if (!m) return false;
+  meta.syncKey = decodeURIComponent(m[1]);
+  await saveMeta();
+  history.replaceState(null, '', location.pathname);
+  await queueEverything();
+  toast('Sync is on ✓');
+  return true;
+}
+
+function syncInfoHtml() {
+  if (!SYNC_URL || !meta.syncKey) return '<p><b>Sync is not set up yet.</b></p><p><small>Open the setup link you were sent.</small></p>';
+  const last = meta.lastSync ? new Date(meta.lastSync).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
+  return `<p class="${Sync.pending ? '' : 'ok'}"><b>${Sync.pending ? `${Sync.pending} change${Sync.pending === 1 ? '' : 's'} waiting to be sent` : 'Everything is synced ✓'}</b></p>
+    ${Sync.pending && !navigator.onLine ? '<p><small>No internet right now. They will be sent automatically.</small></p>' : ''}
+    ${Sync.error ? `<p class="bad"><small>Last try failed: ${esc(Sync.error)}. Trying again soon.</small></p>` : ''}
+    <p><small>${meta.syncUser ? `Synced as ${esc(meta.syncUser)} · ` : ''}Last synced: ${last}</small></p>`;
+}
+function updateSyncInfo() {
+  const el = $('#syncInfo');
+  if (el) el.innerHTML = syncInfoHtml();
+}
+function syncCard() {
+  const on = SYNC_URL && meta.syncKey;
+  return `<h2>Sync with the sheet</h2>
+    <div class="card"><div id="syncInfo">${syncInfoHtml()}</div>
+      ${on ? `<button class="btn block" data-act="syncNow">Sync now</button>
+      <button class="btn ghost block" data-act="loadFromSheet">Load everything from the sheet</button>
+      <p><small>Only needed on a new phone. It replaces what is on this phone.</small></p>` : ''}
+    </div>`;
+}
+
+// Replace the given stores on this phone with what the sheet has.
+async function replaceFromSheet(stores, data) {
+  const t = db.transaction(STORES, 'readwrite');
+  t.objectStore('outbox').clear();
+  for (const s of stores) {
+    t.objectStore(s).clear();
+    for (const o of data[s] || []) t.objectStore(s).put(o);
+  }
+  t.objectStore('meta').put(meta);
+  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+
+async function queueEverything() {
+  for (const e of entries.values()) await enqueue('entries', 'put', e.id, e);
+  await enqueue('settings', 'put', 'startCount', { id: 'startCount', value: meta.startCount || 0 });
+}
+
+async function loadFromSheet() {
+  if (!navigator.onLine) return toast('No internet right now');
+  toast('Loading from the sheet…', 15000);
+  const { data } = await syncPost({ action: 'pull' });
+  if (!confirm(`Load ${(data.entries || []).length} entries from the sheet?\n\nEverything on this phone will be REPLACED.`)) return;
+  meta.startCount = (data.settings || []).find(x => x.id === 'startCount')?.value || 0;
+  await replaceFromSheet(['entries'], data);
+  await loadAll();
+  toast('Loaded ✓');
+  go('#log');
+  render();
+}
+
+/* ---------- page: sync / settings ---------- */
 function pageSettings() {
-  setHeader('Export & settings');
-  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
-  UI.prepared = null;
+  setHeader('Sync & settings');
   UI.after = async () => {
-    UI.prepared = exportData();
+    Sync.pending = await req(store('outbox').count());
+    updateSyncInfo();
     const est = await navigator.storage?.estimate?.();
     const persisted = await navigator.storage?.persisted?.();
     const s = $('#storageInfo');
     if (s) s.textContent = `${persisted ? 'Storage is protected.' : 'Storage may be cleared by the phone if space runs low.'}${est ? ` Using ${(est.usage / 1048576).toFixed(1)} MB.` : ''}`;
   };
-  return `<h2>Send export by e-mail</h2>
-    <div class="card">
-      <p class="muted"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
-      <label class="field"><span>Send exports to</span>
-        <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
-      <button class="btn block" data-act="sendBackup">Send export</button>
-      <p><small>Pick Gmail (or another mail app) in the list that opens. The address above is copied — paste it into “To”.</small></p>
-      <button class="btn ghost block" data-act="saveBackup">Save export file on this phone</button>
-    </div>
-    <h2>Import</h2>
-    <div class="card"><p><small>Load an export file. This <b>replaces</b> everything currently in the app.</small></p>
-      <label class="btn ghost block">Import from file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
+  return `${syncCard()}
     <h2>Settings</h2>
     <div class="card">
       <label class="field"><span>Baboy you had before using the app</span>
@@ -335,44 +396,6 @@ function pageSettings() {
     </div>`;
 }
 
-const exportData = () => JSON.stringify({
-  app: 'king-of-the-baboy', format: 1, exportedAt: new Date().toISOString(),
-  startCount: meta.startCount || 0, entries: [...entries.values()],
-});
-// Backups use .txt because Android's share sheet refuses .json files.
-const backupFile = () => new File([UI.prepared], `kingofbaboy-export-${today()}.txt`, { type: 'text/plain' });
-
-function downloadFile(file) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(file); a.download = file.name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-}
-async function backupDone() {
-  meta.lastBackup = new Date().toISOString();
-  await saveMeta();
-  render();
-}
-
-async function importBackup(file) {
-  let data;
-  try { data = JSON.parse(await file.text()); } catch { return alert('This is not a valid export file.'); }
-  if (data?.app !== 'king-of-the-baboy') return alert('This is not a King of Baboy export file.');
-  const when = new Date(data.exportedAt).toLocaleString('en-PH');
-  if (!confirm(`Import data exported on ${when}?\n\n${data.entries.length} entries.\n\nEverything currently in the app will be REPLACED.`)) return;
-  const t = db.transaction(STORES, 'readwrite');
-  t.objectStore('entries').clear();
-  for (const e of data.entries) t.objectStore('entries').put(e);
-  meta.lastBackup = data.exportedAt;
-  meta.startCount = data.startCount || 0;
-  t.objectStore('meta').put(meta);
-  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
-  await loadAll();
-  toast('Import done ✓');
-  go('#log');
-  render();
-}
-
 /* ---------- actions (buttons with data-act) ---------- */
 const ACT = {
   back: () => (UI.backHref ? go(UI.backHref) : history.back()),
@@ -386,33 +409,8 @@ const ACT = {
     if (!confirm('Delete this entry?')) return;
     await delEntry(d.id); closeSheet(); render();
   },
-  sendBackup: () => {
-    const email = $('#email').value.trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter a valid e-mail address first'); $('#email').focus(); return; }
-    if (email !== meta.email) { meta.email = email; saveMeta(); }
-    if (!UI.prepared) { toast('Preparing export… try again in a moment'); return; }
-    const file = backupFile();
-    navigator.clipboard?.writeText(email).catch(() => {});
-    if (navigator.canShare?.({ files: [file] })) {
-      toast(`Address copied: ${email}`, 4000);
-      navigator.share({ files: [file], title: `King of Baboy export ${today()}`, text: `King of Baboy export ${today()}` })
-        .then(backupDone)
-        .catch(err => { if (err.name !== 'AbortError') toast('Sharing failed: ' + err.message); });
-    } else {
-      // No share sheet (e.g. desktop): save the file and open a mail draft to attach it to.
-      downloadFile(file);
-      setTimeout(() => {
-        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('King of Baboy export ' + today())}`
-          + `&body=${encodeURIComponent(`Please attach the file ${file.name} from Downloads.`)}`;
-      }, 600);
-      backupDone();
-    }
-  },
-  copySummary: d => copyText(monthSummary(d.month)),
-  saveBackup: () => {
-    if (!UI.prepared) return toast('Preparing export… try again in a moment');
-    downloadFile(backupFile()); toast('Export saved to Downloads');
-  },
+  syncNow: async () => { Sync.error = null; await syncNow(); toast(Sync.error ? 'Sync failed — will try again' : Sync.pending ? 'Still sending…' : 'Synced ✓'); },
+  loadFromSheet: () => loadFromSheet(),
 };
 
 /* ---------- forms + inputs ---------- */
@@ -446,9 +444,12 @@ const FORMS = {
 };
 
 const CHANGE = {
-  email: async el => { meta.email = el.value.trim(); await saveMeta(); },
-  startCount: async el => { meta.startCount = Math.max(0, Math.round(num(el.value))); await saveMeta(); toast('Saved ✓'); },
-  restore: async el => { const f = el.files[0]; el.value = ''; if (f) await importBackup(f); },
+  startCount: async el => {
+    meta.startCount = Math.max(0, Math.round(num(el.value)));
+    await saveMeta();
+    await enqueue('settings', 'put', 'startCount', { id: 'startCount', value: meta.startCount });
+    toast('Saved ✓');
+  },
 };
 
 const guard = fn => (...a) => Promise.resolve(fn(...a)).catch(err => { console.error(err); alert('Something went wrong: ' + err.message); });
@@ -474,10 +475,15 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 
-window.addEventListener('hashchange', () => { closeSheet(); render(); });
+window.addEventListener('hashchange', async () => { closeSheet(); await handleSetupLink(); render(); });
+window.addEventListener('online', () => scheduleSync(100));
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); UI.installEvt = e; render(); });
 // Re-render when the app comes back to the foreground, so "today" is always right.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if ($('#sheet').hidden) render();
+  scheduleSync(100);
+});
 
 (async function init() {
   try {
@@ -489,5 +495,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && $(
   }
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  await handleSetupLink();
   render();
+  scheduleSync(500);
+  setInterval(() => scheduleSync(0), 60000);
 })();

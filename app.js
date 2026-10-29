@@ -74,6 +74,8 @@ const ICON = Object.fromEntries(Object.entries({
   other: '<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5z M9 8h6 M9 12h6 M9 16h3"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`]));
 const COPY_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9z M5 15H4V4h11v1"/></svg>';
+// +3 / −2 / ±0 for a change in the number of baboy.
+const fmtChange = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
 const sorted = () => [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 const onHand = () => (meta.startCount || 0) + sum([...entries.values()], e => e.kind === 'buy' ? e.count : e.kind === 'sell' ? -e.count : 0);
 
@@ -242,6 +244,8 @@ function pageStats(month) {
     <p class="muted" style="margin:6px 4px 0"><small>Paste it in a chat. Pick another month under “By month”.</small></p>
     <h2>This month</h2>
     <div class="tiles">${tile('Sold', peso(m.sold))}${tile('Spent', peso(m.spent))}${tile('Profit', peso(m.profit), m.profit < 0 ? 'bad' : 'ok')}</div>
+    <div class="card"><small>Baboy this month</small>
+      <div class="big">${fmtChange(m.nBought - m.nSold)} <small>(${m.nBought} bought, ${m.nSold} sold)</small></div></div>
     <h2>All time</h2>
     <div class="tiles">${tile('Sold', peso(t.sold))}${tile('Spent', peso(t.spent))}${tile('Profit', peso(t.profit), t.profit < 0 ? 'bad' : 'ok')}</div>
     <div class="card"><div class="facts">
@@ -254,9 +258,10 @@ function pageStats(month) {
       <div><small>Other expenses</small><b>${peso(t.other)}</b></div>
     </div><p><small>Profit = money from selling baboy, minus money spent on baboy, feed, gasolina and other expenses.</small></p></div>
     <h2>By month</h2>
-    <div class="card"><table><tr><th>Month</th><th>Sold</th><th>Spent</th><th>Profit</th></tr>
+    <div class="card"><table><tr><th>Month</th><th>Baboy</th><th>Sold</th><th>Spent</th><th>Profit</th></tr>
       ${months.map(k => { const o = totals(all.filter(e => monthOf(e.date) === k));
-        return `<tr class="${k === month ? 'sel' : ''}"><td><a href="#stats/${k}">${fmtMonth(k)}</a></td><td>${peso(o.sold)}</td><td>${peso(o.spent)}</td>
+        return `<tr class="${k === month ? 'sel' : ''}"><td><a href="#stats/${k}">${fmtMonth(k)}</a></td><td>${fmtChange(o.nBought - o.nSold)}</td>
+          <td>${peso(o.sold)}</td><td>${peso(o.spent)}</td>
           <td class="${o.profit < 0 ? 'bad' : ''}">${peso(o.profit)}</td></tr>`; }).join('')}
     </table></div>
     <h2>By size</h2>
@@ -285,6 +290,7 @@ function monthSummary(m) {
     `Spent in total: ${peso(t.spent)}`,
     `Profit: ${peso(t.profit)}`,
     '',
+    `Change in baboy: ${fmtChange(t.nBought - t.nSold)}`,
     `Baboy now: ${onHand()}`,
     `Last export: ${age === null ? 'never' : age === 0 ? 'today' : `${age} days ago`}`,
   ].join('\n');

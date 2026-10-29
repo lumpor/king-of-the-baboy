@@ -1,0 +1,15 @@
+{
+  "name": "King of the Baboy",
+  "short_name": "Baboy",
+  "description": "Baboy buying, selling and feed bookkeeping",
+  "start_url": "./#log",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f5f4",
+  "theme_color": "#6b3a7d",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

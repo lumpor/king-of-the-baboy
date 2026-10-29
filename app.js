@@ -162,7 +162,7 @@ function entryRow(e) {
 }
 
 function pageLog() {
-  setHeader('King of the Baboy');
+  setHeader('King of Baboy');
   const list = sorted();
   const shown = UI.showAll ? list : list.slice(0, 50);
   const m = totals(list.filter(e => monthOf(e.date) === thisMonth()));
@@ -302,7 +302,7 @@ const exportData = () => JSON.stringify({
   startCount: meta.startCount || 0, entries: [...entries.values()],
 });
 // Backups use .txt because Android's share sheet refuses .json files.
-const backupFile = () => new File([UI.prepared], `kingofthebaboy-export-${today()}.txt`, { type: 'text/plain' });
+const backupFile = () => new File([UI.prepared], `kingofbaboy-export-${today()}.txt`, { type: 'text/plain' });
 
 function downloadFile(file) {
   const a = document.createElement('a');
@@ -319,7 +319,7 @@ async function backupDone() {
 async function importBackup(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { return alert('This is not a valid export file.'); }
-  if (data?.app !== 'king-of-the-baboy') return alert('This is not a King of the Baboy export file.');
+  if (data?.app !== 'king-of-the-baboy') return alert('This is not a King of Baboy export file.');
   const when = new Date(data.exportedAt).toLocaleString('en-PH');
   if (!confirm(`Import data exported on ${when}?\n\n${data.entries.length} entries.\n\nEverything currently in the app will be REPLACED.`)) return;
   const t = db.transaction(STORES, 'readwrite');
@@ -357,14 +357,14 @@ const ACT = {
     navigator.clipboard?.writeText(email).catch(() => {});
     if (navigator.canShare?.({ files: [file] })) {
       toast(`Address copied: ${email}`, 4000);
-      navigator.share({ files: [file], title: `King of the Baboy export ${today()}`, text: `King of the Baboy export ${today()}` })
+      navigator.share({ files: [file], title: `King of Baboy export ${today()}`, text: `King of Baboy export ${today()}` })
         .then(backupDone)
         .catch(err => { if (err.name !== 'AbortError') toast('Sharing failed: ' + err.message); });
     } else {
       // No share sheet (e.g. desktop): save the file and open a mail draft to attach it to.
       downloadFile(file);
       setTimeout(() => {
-        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('King of the Baboy export ' + today())}`
+        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('King of Baboy export ' + today())}`
           + `&body=${encodeURIComponent(`Please attach the file ${file.name} from Downloads.`)}`;
       }, 600);
       backupDone();

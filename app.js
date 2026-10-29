@@ -196,7 +196,7 @@ function entrySheet(kind, id) {
       : `<label class="field"><span>Number of baboy</span><input name="count" type="number" inputmode="numeric" min="1" step="1" required value="${e.count}"></label>
          <span class="field" style="display:block"><b style="font-size:14px">Size</b></span>
          <div class="seg">${sizeSeg}</div>`}
-    <label class="field"><span>Total price (₱)</span><input name="total" type="number" inputmode="decimal" min="0" step="any" required value="${e.total}">
+    <label class="field"><span>Total price (₱)</span><input name="total" type="number" inputmode="numeric" min="10" step="10" required value="${e.total}">
       <small id="unitPrice"></small></label>
     <label class="field"><span>Date</span><input name="date" type="date" required value="${e.date}"></label>
     <label class="field"><span>Notes (optional)</span><input name="notes" autocomplete="off" value="${esc(e.notes)}"></label>
@@ -437,6 +437,7 @@ const FORMS = {
       if (!e.size) return alert('Choose a size.');
     }
     if (e.total <= 0) return alert('Enter the total price.');
+    if (e.total % 10) return alert('Prices are in whole ₱10s.');
     await putEntry(e);
     closeSheet(); render();
     toast('Saved ✓');

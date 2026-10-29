@@ -73,6 +73,7 @@ const ICON = Object.fromEntries(Object.entries({
   gas: '<path d="M5 4h9v16H5z M5 10h9 M14 8h2l3 3v7a1.5 1.5 0 0 1-3 0v-3h-2"/>',
   other: '<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5z M9 8h6 M9 12h6 M9 16h3"/>',
 }).map(([k, d]) => [k, `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`]));
+const COPY_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9z M5 15H4V4h11v1"/></svg>';
 const sorted = () => [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 const onHand = () => (meta.startCount || 0) + sum([...entries.values()], e => e.kind === 'buy' ? e.count : e.kind === 'sell' ? -e.count : 0);
 
@@ -235,7 +236,11 @@ function pageStats(month) {
     return `<tr><td>${label}</td><td>${nb}${nb ? `<br><small>${peso(sum(b, e => e.total) / nb)} each</small>` : ''}</td>
       <td>${ns}${ns ? `<br><small>${peso(sum(s, e => e.total) / ns)} each</small>` : ''}</td></tr>`;
   }).join('');
-  return `<h2>This month</h2>
+  return `<div class="btns" style="margin-top:0">
+      <button class="btn" data-act="copySummary" data-month="${month}">${COPY_ICON}Copy ${fmtMonth(month)}</button>
+      <button class="btn ghost" data-act="copySummary" data-month="all">${COPY_ICON}Copy all time</button></div>
+    <p class="muted" style="margin:6px 4px 0"><small>Paste it in a chat. Pick another month under “By month”.</small></p>
+    <h2>This month</h2>
     <div class="tiles">${tile('Sold', peso(m.sold))}${tile('Spent', peso(m.spent))}${tile('Profit', peso(m.profit), m.profit < 0 ? 'bad' : 'ok')}</div>
     <h2>All time</h2>
     <div class="tiles">${tile('Sold', peso(t.sold))}${tile('Spent', peso(t.spent))}${tile('Profit', peso(t.profit), t.profit < 0 ? 'bad' : 'ok')}</div>
@@ -251,11 +256,49 @@ function pageStats(month) {
     <h2>By month</h2>
     <div class="card"><table><tr><th>Month</th><th>Sold</th><th>Spent</th><th>Profit</th></tr>
       ${months.map(k => { const o = totals(all.filter(e => monthOf(e.date) === k));
-        return `<tr><td>${fmtMonth(k)}</td><td>${peso(o.sold)}</td><td>${peso(o.spent)}</td>
+        return `<tr class="${k === month ? 'sel' : ''}"><td><a href="#stats/${k}">${fmtMonth(k)}</a></td><td>${peso(o.sold)}</td><td>${peso(o.spent)}</td>
           <td class="${o.profit < 0 ? 'bad' : ''}">${peso(o.profit)}</td></tr>`; }).join('')}
     </table></div>
     <h2>By size</h2>
     <div class="card"><table><tr><th>Size</th><th>Bought</th><th>Sold</th></tr>${sizeRows}</table></div>`;
+}
+
+/* ---------- monthly summary (copied as text, to paste in a chat) ---------- */
+// m is 'YYYY-MM', or 'all' for everything so far.
+function monthSummary(m) {
+  const t0 = today();
+  const list = sorted().filter(e => m === 'all' || monthOf(e.date) === m);
+  const t = totals(list);
+  const bySize = kind => Object.entries(SIZES)
+    .map(([k, label]) => [label, sum(list.filter(e => e.kind === kind && e.size === k), e => e.count)])
+    .filter(([, n]) => n).map(([label, n]) => `${n} ${label}`).join(', ');
+  const others = list.filter(e => e.kind === 'other');
+  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), t0) : null;
+  return [
+    `King of Baboy — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
+    '',
+    `Sold: ${t.nSold} baboy, ${peso(t.sold)}${t.nSold ? ` (${bySize('sell')})` : ''}`,
+    `Bought: ${t.nBought} baboy, ${peso(t.bought)}${t.nBought ? ` (${bySize('buy')})` : ''}`,
+    `Feed: ${round2(t.kg)} kg, ${peso(t.feed)}`,
+    `Gasolina: ${peso(t.gas)}`,
+    `Other: ${peso(t.other)}${others.length ? ` (${others.map(e => `${e.what} ${peso(e.total)}`).join(', ')})` : ''}`,
+    `Spent in total: ${peso(t.spent)}`,
+    `Profit: ${peso(t.profit)}`,
+    '',
+    `Baboy now: ${onHand()}`,
+    `Last export: ${age === null ? 'never' : age === 0 ? 'today' : `${age} days ago`}`,
+  ].join('\n');
+}
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Summary copied — paste it in the chat');
+  } catch {
+    // No clipboard access: show the text so it can be copied by hand.
+    openSheet(`<h3>Monthly summary</h3><textarea rows="14" readonly>${esc(text)}</textarea>
+      <p><small>Select all of the text and copy it.</small></p>`);
+    setTimeout(() => { const t = $('#sheet textarea'); t.focus(); t.select(); }, 60);
+  }
 }
 
 /* ---------- page: backup / settings ---------- */
@@ -370,6 +413,7 @@ const ACT = {
       backupDone();
     }
   },
+  copySummary: d => copyText(monthSummary(d.month)),
   saveBackup: () => {
     if (!UI.prepared) return toast('Preparing export… try again in a moment');
     downloadFile(backupFile()); toast('Export saved to Downloads');

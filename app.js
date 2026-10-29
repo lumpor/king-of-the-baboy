@@ -258,7 +258,7 @@ function pageStats(month) {
 /* ---------- sync with the Google Sheet ---------- */
 // Every change is saved on the phone first and put in the 'outbox' queue. The queue is sent to
 // the sheet in the background whenever there is internet, so a bad connection never slows the app.
-const SYNC_URL = ''; // the Apps Script web app URL (…/exec)
+const SYNC_URL = 'https://script.google.com/macros/s/AKfycbxirHkuj8XboiE062f8bNiOBo4W332M0Oje0RjVP6KSqI5r2fcltbeGKYdzxeX91smNbA/exec'; // the Apps Script web app URL (…/exec)
 const SYNC_APP = 'king-of-baboy';
 const SYNCED = ['entries', 'settings'];
 const Sync = { busy: false, timer: null, error: null, pending: 0 };

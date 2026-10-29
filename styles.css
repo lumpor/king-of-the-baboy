@@ -174,3 +174,5 @@ form[data-mode="date"] .m-amt input, form[data-mode="amount"] .m-date input { ba
 .kind.gas { color: #2c5d8a; }
 .btn.other { background: #5d6b63; grid-column: 1 / -1; min-height: 52px !important; flex-direction: row !important; }
 .kind.other { color: #5d6b63; }
+.actions .btn svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.actions .btn.other svg { width: 24px; height: 24px; }

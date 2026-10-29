@@ -60,9 +60,19 @@ async function delEntry(id) { entries.delete(id); await req(store('entries', 're
 const saveMeta = () => req(store('meta', 'readwrite').put(meta));
 
 /* ---------- domain ---------- */
-const KIND = { buy: 'Bought baboy', sell: 'Sold baboy', feed: 'Bought feed', gas: 'Bought gasoline', other: 'Other expense' };
+const KIND = { buy: 'Bought baboy', sell: 'Sold baboy', feed: 'Bought feed', gas: 'Bought gasolina', other: 'Other expense' };
 // "Tunga-tunga" is Bisaya for medium-sized.
 const SIZES = { gamay: 'Gamay', tunga: 'Tunga-tunga', dako: 'Dako' };
+// Line icons for the Log buttons (24×24, drawn with the button's text colour).
+const PIG = '<circle cx="10" cy="13" r="7"/><path d="M5 8 4 4l4 2.5 M15 8l1-4-4 2.5"/><ellipse cx="10" cy="15" rx="3" ry="2"/>'
+  + '<circle cx="7.5" cy="11" r=".6" fill="currentColor"/><circle cx="12.5" cy="11" r=".6" fill="currentColor"/>';
+const ICON = Object.fromEntries(Object.entries({
+  buy: PIG + '<path d="M20 15v6 M17 18h6"/>',
+  sell: PIG + '<text x="16.5" y="22" font-size="8" font-weight="700" fill="currentColor" stroke="none">₱</text>',
+  feed: '<path d="M7 7c0-2 2-3 5-3s5 1 5 3 M6 8h12l-1 12H7z M9.5 13h5 M9.5 16h5"/>',
+  gas: '<path d="M5 4h9v16H5z M5 10h9 M14 8h2l3 3v7a1.5 1.5 0 0 1-3 0v-3h-2"/>',
+  other: '<path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5z M9 8h6 M9 12h6 M9 16h3"/>',
+}).map(([k, d]) => [k, `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`]));
 const sorted = () => [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 const onHand = () => (meta.startCount || 0) + sum([...entries.values()], e => e.kind === 'buy' ? e.count : e.kind === 'sell' ? -e.count : 0);
 
@@ -142,7 +152,7 @@ function installTip() {
 
 function entryRow(e) {
   const what = e.kind === 'feed' ? `${e.kilos} kg feed <small>· ${peso(e.total / e.kilos)}/kg</small>`
-    : e.kind === 'gas' ? 'Gasoline'
+    : e.kind === 'gas' ? 'Gasolina'
     : e.kind === 'other' ? esc(e.what)
     : `${e.count} ${SIZES[e.size]} baboy <small>· ${peso(e.total / e.count)} each</small>`;
   return `<div class="item" data-act="editEntry" data-id="${e.id}" style="cursor:pointer">
@@ -168,11 +178,8 @@ function pageLog() {
   if (day) html += '</div>';
   return `${installTip()}${backupBanner()}
     <div class="actions">
-      <button class="btn buy" data-act="newEntry" data-kind="buy"><b>＋</b>Bought baboy</button>
-      <button class="btn sell" data-act="newEntry" data-kind="sell"><b>＋</b>Sold baboy</button>
-      <button class="btn feed" data-act="newEntry" data-kind="feed"><b>＋</b>Bought feed</button>
-      <button class="btn gas" data-act="newEntry" data-kind="gas"><b>＋</b>Bought gasoline</button>
-      <button class="btn other" data-act="newEntry" data-kind="other"><b>＋</b>Other expense</button>
+      ${['buy', 'sell', 'feed', 'gas', 'other'].map(k =>
+        `<button class="btn ${k}" data-act="newEntry" data-kind="${k}">${ICON[k]}${KIND[k]}</button>`).join('')}
     </div>
     <div class="card"><div class="facts">
       <div><small>Baboy now</small><b class="big">${onHand()}</b></div>
@@ -238,9 +245,9 @@ function pageStats(month) {
       <div><small>Feed bought</small><b>${round2(t.kg)} kg</b></div>
       <div><small>Average feed price</small><b>${t.kg ? peso(t.feed / t.kg) + '/kg' : '—'}</b></div>
       <div><small>Spent on feed</small><b>${peso(t.feed)}</b></div>
-      <div><small>Spent on gasoline</small><b>${peso(t.gas)}</b></div>
+      <div><small>Spent on gasolina</small><b>${peso(t.gas)}</b></div>
       <div><small>Other expenses</small><b>${peso(t.other)}</b></div>
-    </div><p><small>Profit = money from selling baboy, minus money spent on baboy, feed, gasoline and other expenses.</small></p></div>
+    </div><p><small>Profit = money from selling baboy, minus money spent on baboy, feed, gasolina and other expenses.</small></p></div>
     <h2>By month</h2>
     <div class="card"><table><tr><th>Month</th><th>Sold</th><th>Spent</th><th>Profit</th></tr>
       ${months.map(k => { const o = totals(all.filter(e => monthOf(e.date) === k));

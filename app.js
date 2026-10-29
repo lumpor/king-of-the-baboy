@@ -278,7 +278,6 @@ function monthSummary(m) {
     .map(([k, label]) => [label, sum(list.filter(e => e.kind === kind && e.size === k), e => e.count)])
     .filter(([, n]) => n).map(([label, n]) => `${n} ${label}`).join(', ');
   const others = list.filter(e => e.kind === 'other');
-  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), t0) : null;
   return [
     `King of Baboy — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
     '',
@@ -292,7 +291,6 @@ function monthSummary(m) {
     '',
     `Change in baboy: ${fmtChange(t.nBought - t.nSold)}`,
     `Baboy now: ${onHand()}`,
-    `Last export: ${age === null ? 'never' : age === 0 ? 'today' : `${age} days ago`}`,
   ].join('\n');
 }
 async function copyText(text) {
